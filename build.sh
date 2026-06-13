@@ -243,13 +243,17 @@ ${load_line}
 #   }
 EOF
     log "Snippet di esempio scritto in: ${snippet}"
-    [ -n "$load_line" ] && warn "Ricorda: aggiungi a inizio nginx.conf -> ${load_line}"
+    if [ -n "$load_line" ]; then
+        warn "Ricorda: aggiungi a inizio nginx.conf -> ${load_line}"
+    fi
+    return 0
 }
 
 verify() {
     local bin="${PREFIX}/sbin/nginx"
+    [ -x "$bin" ] || bin="$(test_bin)"
     [ -x "$bin" ] || bin="$(command -v nginx || true)"
-    [ -n "$bin" ] && [ -x "$bin" ] || { warn "Binario nginx non trovato per la verifica"; return; }
+    [ -n "$bin" ] && [ -x "$bin" ] || { warn "Binario nginx non trovato per la verifica"; return 0; }
 
     log "Versione e flag di build:"
     "$bin" -V 2>&1 | sed 's/^/    /'
