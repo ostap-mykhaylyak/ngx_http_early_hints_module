@@ -1,0 +1,61 @@
+name: build-and-test
+
+# Compila nginx con il modulo early_hints ed esegue i test funzionali
+# (HTTP/1.1 sempre; HTTP/2 su TLS self-signed; HTTP/3 best-effort).
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:        # avvio manuale dalla tab Actions
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        link_mode: [ dynamic, static ]
+        nginx_version: [ "1.31.1" ]
+
+    name: ${{ matrix.link_mode }} · nginx ${{ matrix.nginx_version }}
+
+    env:
+      NGINX_VERSION: ${{ matrix.nginx_version }}
+      LINK_MODE: ${{ matrix.link_mode }}
+      WITH_HTTP3: "1"
+      # MODULE_REPO non serve: lo script usa la checkout corrente del repo.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Mostra versioni strumenti
+        run: |
+          gcc --version | head -n1
+          curl --version | head -n1
+          openssl version
+
+      - name: Build + test (senza install)
+        run: |
+          chmod +x ./build.sh
+          ./build.sh --no-install
+
+      - name: Carica i log in caso di fallimento
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.link_mode }}
+          path: |
+            .build/test/logs/
+            .build/nginx-*/objs/autoconf.err
+          if-no-files-found: ignore
+
+      - name: Carica il modulo compilato (.so)
+        if: matrix.link_mode == 'dynamic'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ngx_http_early_hints_set_module-${{ matrix.nginx_version }}.so
+          path: .build/nginx-*/objs/ngx_http_early_hints_set_module.so
+          if-no-files-found: warn
