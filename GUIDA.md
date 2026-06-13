@@ -136,6 +136,57 @@ repo come sorgente del modulo.
 
 ---
 
+## 5bis. Pacchetti .deb pronti (Ubuntu 24.04 / 26.04)
+
+Il workflow [`.github/workflows/release-deb.yml`](.github/workflows/release-deb.yml)
+costruisce pacchetti **`.deb` self-contained** chiamati semplicemente **`nginx`**:
+**l'ultima versione di nginx** (rilevata automaticamente da nginx.org) con il
+modulo compilato dentro (statico), installata in `/opt/nginx` con servizio
+systemd `nginx`. Il pacchetto dichiara `Conflicts/Replaces: nginx`, quindi
+**sostituisce** l'eventuale nginx della distribuzione.
+
+> Perché self-contained e non "solo modulo"? Perché l'nginx di Ubuntu (24.04 =
+> 1.24) è **troppo vecchio**: non ha il supporto early-hints nel core (serve
+> ≥ 1.29). Quindi il pacchetto porta con sé il proprio nginx aggiornato — sempre
+> l'ultima release disponibile al momento della build.
+
+### Generare i pacchetti
+
+Il **numero del tag** diventa la *revisione* del pacchetto; la versione di nginx
+la sceglie il workflow (l'ultima). Quindi basta incrementare:
+
+```bash
+git tag v1        # prima release  -> pacchetto ...-1
+git push --tags
+# in futuro: git tag v2 && git push --tags  -> ...-2 con nginx aggiornato
+```
+
+Il push del tag avvia il workflow: compila su `ubuntu:24.04` e `ubuntu:26.04`,
+crea una **Release** su GitHub e vi allega i due file (es. con nginx 1.31.1):
+
+```
+nginx_1.31.1-1~ubuntu24.04_amd64.deb
+nginx_1.31.1-1~ubuntu26.04_amd64.deb
+```
+
+(Avvio manuale da **Actions → release-deb → Run workflow**: produce solo gli
+artifact, senza Release.)
+
+### Installare sul server
+
+```bash
+# scarica il .deb per la tua versione di Ubuntu dalla pagina Releases, poi:
+sudo apt install ./nginx_1.31.1-1~ubuntu24.04_amd64.deb
+
+sudo systemctl enable --now nginx
+/opt/nginx/sbin/nginx -V        # conferma: modulo incluso, h2/h3
+```
+
+Le dipendenze runtime (`libssl…`, `libpcre2…`, `zlib…`) sono calcolate in fase
+di build per ciascuna Ubuntu, quindi `apt` le risolve da solo.
+
+---
+
 ## 6. Deploy sul server
 
 ### Opzione A — modulo dinamico (consigliata)

@@ -14,7 +14,8 @@
 #   ./build.sh --no-install         # compila ma non installa
 #
 # Variabili d'ambiente principali (tutte con default):
-#   NGINX_VERSION   versione nginx da scaricare           (default: 1.31.1)
+#   NGINX_VERSION   versione nginx da scaricare, oppure    (default: 1.31.1)
+#                   "latest" per l'ultima da nginx.org
 #   MODULE_REPO     URL git del repo del modulo            (OBBLIGATORIA*)
 #   MODULE_REF      branch/tag/commit del modulo           (default: main)
 #   LINK_MODE       dynamic | static                       (default: dynamic)
@@ -62,11 +63,16 @@ for arg in "$@"; do
     esac
 done
 
-NGINX_TARBALL="nginx-${NGINX_VERSION}.tar.gz"
-NGINX_URL="https://nginx.org/download/${NGINX_TARBALL}"
-NGINX_SRC="${BUILD_DIR}/nginx-${NGINX_VERSION}"
 MODULE_DIR="${BUILD_DIR}/module"
 SO_NAME="ngx_http_early_hints_set_module.so"
+
+# Variabili derivate dalla versione (ricalcolate dopo l'eventuale "latest").
+set_paths() {
+    NGINX_TARBALL="nginx-${NGINX_VERSION}.tar.gz"
+    NGINX_URL="https://nginx.org/download/${NGINX_TARBALL}"
+    NGINX_SRC="${BUILD_DIR}/nginx-${NGINX_VERSION}"
+}
+set_paths
 
 # ----------------------------------------------------------------------------
 # Logging
@@ -115,6 +121,25 @@ install_deps() {
         warn "Package manager non riconosciuto: assicurati di avere gcc, make,"
         warn "git, curl e gli header di PCRE2, zlib, OpenSSL."
     fi
+}
+
+# ----------------------------------------------------------------------------
+# 1b. Risoluzione versione (NGINX_VERSION=latest -> ultima release nginx.org)
+# ----------------------------------------------------------------------------
+resolve_nginx_version() {
+    if [ "$NGINX_VERSION" != "latest" ]; then
+        return 0
+    fi
+    log "Rilevo l'ultima versione di nginx da nginx.org"
+    NGINX_VERSION="$(
+        curl -fsSL https://nginx.org/download/ \
+        | grep -oE 'nginx-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz' \
+        | sed -E 's/^nginx-([0-9.]+)\.tar\.gz$/\1/' \
+        | sort -V | tail -n1
+    )"
+    [ -n "$NGINX_VERSION" ] || die "Impossibile rilevare l'ultima versione di nginx."
+    log "Ultima versione nginx: ${NGINX_VERSION}"
+    set_paths
 }
 
 # ----------------------------------------------------------------------------
@@ -420,6 +445,7 @@ main() {
         exit 0
     fi
 
+    resolve_nginx_version
     log "nginx ${NGINX_VERSION} | modulo: ${MODULE_REPO:-<cartella corrente>} (${MODULE_REF}) | $LINK_MODE"
     install_deps
     fetch_nginx
