@@ -37,6 +37,21 @@ jobs:
           curl --version | head -n1
           openssl version
 
+      - name: Installa curl con supporto HTTP/3
+        run: |
+          set -euo pipefail
+          ver=$(curl -fsSL https://api.github.com/repos/stunnel/static-curl/releases/latest \
+                | grep -oP '"tag_name":\s*"\K[^"]+')
+          echo "static-curl $ver"
+          url="https://github.com/stunnel/static-curl/releases/download/${ver}/curl-linux-x86_64-glibc-${ver}.tar.xz"
+          mkdir -p "$HOME/curl-h3"
+          curl -fsSL "$url" | tar -xJ -C "$HOME/curl-h3"
+          "$HOME/curl-h3/curl" --version
+          # verifica che abbia davvero HTTP3 tra le feature
+          "$HOME/curl-h3/curl" --version | grep -qi HTTP3 \
+            || { echo "::warning::il curl scaricato non ha HTTP3"; }
+          echo "TEST_CURL=$HOME/curl-h3/curl" >> "$GITHUB_ENV"
+
       - name: Build + test (senza install)
         run: |
           chmod +x ./build.sh
