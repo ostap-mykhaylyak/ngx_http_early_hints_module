@@ -1,0 +1,7 @@
+# cartella di lavoro di build.sh (sorgenti nginx, oggetti, test)
+.build/
+
+# artefatti vari
+*.o
+*.so
+*.tar.gz

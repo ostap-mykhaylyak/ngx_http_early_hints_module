@@ -1,0 +1,9 @@
+# Forza line endings LF: gli script bash e i sorgenti devono restare LF
+# anche se committati da Windows (altrimenti "bad interpreter: ^M").
+*.sh    text eol=lf
+config  text eol=lf
+*.c     text eol=lf
+*.h     text eol=lf
+*.conf  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
