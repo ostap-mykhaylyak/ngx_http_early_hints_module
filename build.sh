@@ -22,6 +22,8 @@
 #   BUILD_DIR       cartella di lavoro                     (default: ./.build)
 #   JOBS            parallelismo make                      (default: nproc)
 #   WITH_HTTP3      1 per includere HTTP/3 (QUIC)          (default: 1)
+#   TEST_CURL       curl da usare nei test (es. uno con    (default: curl)
+#                   supporto HTTP/3)
 #
 #   * Se lo lanci DENTRO una checkout del repo del modulo (c'è ./config),
 #     MODULE_REPO è opzionale: usa la cartella corrente.
@@ -39,6 +41,9 @@ PREFIX="${PREFIX:-/usr/local/nginx}"
 BUILD_DIR="${BUILD_DIR:-$(pwd)/.build}"
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)}"
 WITH_HTTP3="${WITH_HTTP3:-1}"
+# curl usato per i test funzionali (puo' essere un curl con supporto HTTP/3,
+# diverso da quello di sistema). Default: il curl nel PATH.
+TEST_CURL="${TEST_CURL:-curl}"
 
 DO_INSTALL=1
 DO_TEST=1
@@ -284,9 +289,9 @@ run_test() {
 
     local bin; bin="$(test_bin)"
     [ -n "$bin" ] || die "Test: binario nginx non trovato (compila prima)."
-    command -v curl >/dev/null 2>&1 || die "Test: serve 'curl'."
+    command -v "$TEST_CURL" >/dev/null 2>&1 || die "Test: 'curl' non trovato ($TEST_CURL)."
 
-    log "Test funzionale del modulo early_hints"
+    log "Test funzionale del modulo early_hints (curl: $("$TEST_CURL" --version | head -n1))"
 
     local T="${BUILD_DIR}/test"
     rm -rf "$T"; mkdir -p "$T/logs" "$T/html" "$T/conf"
@@ -356,7 +361,7 @@ EOF
     "$bin" -p "$T" -c "$T/conf/nginx.conf"
     # attendi che la porta risponda
     local i; for i in $(seq 1 20); do
-        curl -s -o /dev/null "http://127.0.0.1:${TEST_PORT_H1}/" && break || sleep 0.2
+        "$TEST_CURL" -s -o /dev/null "http://127.0.0.1:${TEST_PORT_H1}/" && break || sleep 0.2
     done
 
     local fails=0
@@ -374,22 +379,22 @@ EOF
 
     # --- HTTP/1.1 (sempre) ---
     local out
-    out="$(curl -sv --http1.1 "http://127.0.0.1:${TEST_PORT_H1}/" 2>&1 || true)"
+    out="$("$TEST_CURL" -sv --http1.1 "http://127.0.0.1:${TEST_PORT_H1}/" 2>&1 || true)"
     _check "HTTP/1.1" "$out"
 
     # --- HTTP/2 (se TLS) ---
-    if [ "$have_tls" = "1" ] && curl --version | grep -qi 'HTTP2'; then
-        out="$(curl -ksv --http2 "https://127.0.0.1:${TEST_PORT_TLS}/" 2>&1 || true)"
+    if [ "$have_tls" = "1" ] && "$TEST_CURL" --version | grep -qi 'HTTP2'; then
+        out="$("$TEST_CURL" -ksv --http2 "https://127.0.0.1:${TEST_PORT_TLS}/" 2>&1 || true)"
         _check "HTTP/2"  "$out"
     else
         warn "  SKIP — HTTP/2 (TLS o supporto curl assente)"
     fi
 
-    # --- HTTP/3 (best-effort) ---
+    # --- HTTP/3 ---
     if [ "$have_tls" = "1" ] && [ "$WITH_HTTP3" = "1" ] \
-       && curl --version | grep -qi 'HTTP3'; then
-        out="$(curl -ksv --http3-only "https://127.0.0.1:${TEST_PORT_TLS}/" 2>&1 \
-               || curl -ksv --http3 "https://127.0.0.1:${TEST_PORT_TLS}/" 2>&1 || true)"
+       && "$TEST_CURL" --version | grep -qi 'HTTP3'; then
+        out="$("$TEST_CURL" -ksv --http3-only "https://127.0.0.1:${TEST_PORT_TLS}/" 2>&1 \
+               || "$TEST_CURL" -ksv --http3 "https://127.0.0.1:${TEST_PORT_TLS}/" 2>&1 || true)"
         _check "HTTP/3"  "$out"
     else
         warn "  SKIP — HTTP/3 (curl senza supporto h3 o WITH_HTTP3=0)"
