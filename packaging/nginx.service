@@ -1,0 +1,20 @@
+[Unit]
+Description=nginx (build con modulo Early Hints, HTTP/1.1+2+3)
+Documentation=https://github.com/TUO-UTENTE/TUO-REPO
+After=network-online.target remote-fs.target nss-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+PIDFile=/opt/nginx/logs/nginx.pid
+ExecStartPre=/opt/nginx/sbin/nginx -t
+ExecStart=/opt/nginx/sbin/nginx
+ExecReload=/opt/nginx/sbin/nginx -s reload
+ExecStop=/opt/nginx/sbin/nginx -s quit
+KillSignal=SIGQUIT
+TimeoutStopSec=15
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
