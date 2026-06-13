@@ -1,0 +1,139 @@
+name: release-deb
+
+# Costruisce pacchetti .deb self-contained (nginx + modulo early_hints, statico)
+# per Ubuntu 24.04 e 26.04, e li allega a una GitHub Release.
+#
+# Trigger:
+#   - push di un tag "v*"  (es. git tag v1.31.1-1 && git push --tags)  -> crea la Release
+#   - avvio manuale (Actions -> release-deb -> Run workflow)          -> solo artifact
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write          # serve per creare/aggiornare la Release
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: [ "24.04", "26.04" ]
+
+    container:
+      image: ubuntu:${{ matrix.ubuntu }}
+
+    name: deb · ubuntu ${{ matrix.ubuntu }}
+
+    env:
+      NGINX_VERSION: "latest"    # rileva da solo l'ultima release di nginx.org
+      LINK_MODE: static          # modulo dentro il binario -> nessun load_module
+      WITH_HTTP3: "1"
+      PREFIX: /opt/nginx
+      DEBIAN_FRONTEND: noninteractive
+
+    steps:
+      - name: Strumenti base nel container
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git sudo dpkg-dev file
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build nginx + modulo e install in ${PREFIX}
+        run: |
+          chmod +x ./build.sh
+          # build.sh installa le sue dipendenze, compila (statico) e fa make install
+          ./build.sh --no-test
+          test -x "${PREFIX}/sbin/nginx"
+
+      - name: Assembla il pacchetto .deb
+        id: pkg
+        run: |
+          set -euo pipefail
+
+          # ---- versione del pacchetto -------------------------------------
+          # versione "upstream" = versione reale di nginx appena compilata
+          NGINX_REAL="$("${PREFIX}/sbin/nginx" -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          [ -n "$NGINX_REAL" ] || { echo "versione nginx non rilevata"; exit 1; }
+          # revisione del pacchetto = numero del tag (vN) oppure 0 per build manuali
+          REF="${GITHUB_REF##*/}"
+          case "$REF" in
+            v*) REV="${REF#v}" ;;
+            *)  REV="0" ;;
+          esac
+          PKG_VERSION="${NGINX_REAL}-${REV}~ubuntu${{ matrix.ubuntu }}"
+          echo "nginx reale: $NGINX_REAL  -> PKG_VERSION=$PKG_VERSION"
+
+          ARCH="$(dpkg --print-architecture)"     # amd64
+
+          # ---- albero del pacchetto ---------------------------------------
+          ROOT="$(pwd)/pkgroot"
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT/DEBIAN" "$ROOT/opt" "$ROOT/lib/systemd/system"
+
+          cp -a "${PREFIX}" "$ROOT/opt/"
+          cp packaging/nginx.service "$ROOT/lib/systemd/system/"
+          install -m 0755 packaging/postinst "$ROOT/DEBIAN/postinst"
+          install -m 0755 packaging/prerm    "$ROOT/DEBIAN/prerm"
+
+          # ---- dipendenze runtime calcolate dal binario -------------------
+          DEPS="$(
+            ldd "${PREFIX}/sbin/nginx" \
+              | awk '/=>/ {print $3} /ld-linux/ {print $1}' \
+              | grep -E '^/' \
+              | while read -r lib; do dpkg -S "$lib" 2>/dev/null | cut -d: -f1; done \
+              | sort -u | paste -sd', ' -
+          )"
+          echo "Depends: $DEPS"
+
+          # ---- control ----------------------------------------------------
+          INSTALLED_KB="$(du -s -k "$ROOT/opt" "$ROOT/lib" | awk '{s+=$1} END{print s}')"
+          cat > "$ROOT/DEBIAN/control" <<EOF
+          Package: nginx
+          Version: ${PKG_VERSION}
+          Architecture: ${ARCH}
+          Maintainer: Ostap Mykhaylyak <me@ostap.dev>
+          Depends: ${DEPS}
+          Provides: nginx, httpd, nginx-core
+          Conflicts: nginx, nginx-core, nginx-full, nginx-light, nginx-common
+          Replaces: nginx, nginx-core, nginx-full, nginx-light, nginx-common
+          Section: httpd
+          Priority: optional
+          Installed-Size: ${INSTALLED_KB}
+          Homepage: https://github.com/${GITHUB_REPOSITORY}
+          Description: nginx ${NGINX_REAL} con modulo Early Hints (HTTP/1.1, HTTP/2, HTTP/3)
+           Build self-contained di nginx ${NGINX_REAL} con il modulo
+           early_hints compilato staticamente. Permette al web server di emettere
+           risposte 103 Early Hints definite in configurazione (early_hints_link),
+           su tutti i protocolli. Installa in /opt/nginx con servizio systemd
+           "nginx". Sostituisce l'eventuale pacchetto nginx della distribuzione.
+          EOF
+
+          # ---- build .deb -------------------------------------------------
+          OUT="nginx_${PKG_VERSION}_${ARCH}.deb"
+          dpkg-deb --root-owner-group --build "$ROOT" "$OUT"
+          echo "deb_file=$OUT" >> "$GITHUB_OUTPUT"
+
+          echo "==== contenuto pacchetto ===="
+          dpkg-deb --info "$OUT"
+          dpkg-deb --contents "$OUT" | head -n 20
+
+      - name: Carica il .deb come artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.deb_file }}
+          path: ${{ steps.pkg.outputs.deb_file }}
+
+      - name: Allega il .deb alla Release (solo su tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pkg.outputs.deb_file }}
+          fail_on_unmatched_files: true
