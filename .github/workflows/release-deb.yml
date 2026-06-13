@@ -41,7 +41,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates curl git sudo dpkg-dev file
+            bash ca-certificates curl git sudo dpkg-dev file xz-utils
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,6 +55,7 @@ jobs:
 
       - name: Assembla il pacchetto .deb
         id: pkg
+        shell: bash
         run: |
           set -euo pipefail
 
