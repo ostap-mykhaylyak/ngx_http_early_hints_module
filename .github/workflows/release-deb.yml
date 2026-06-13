@@ -89,8 +89,15 @@ jobs:
             ldd "${PREFIX}/sbin/nginx" \
               | awk '/=>/ {print $3} /ld-linux/ {print $1}' \
               | grep -E '^/' \
-              | while read -r lib; do dpkg -S "$lib" 2>/dev/null | cut -d: -f1; done \
-              | sort -u | paste -sd', ' -
+              | while read -r lib; do
+                  real="$(readlink -f "$lib")"
+                  dpkg -S "$real" 2>/dev/null
+                done \
+              | grep -v '^diversion' \
+              | sed -E 's/(:[^:]+)?:[[:space:]].*$//' \
+              | grep -E '^[a-z0-9].*' \
+              | sort -u \
+              | paste -sd, - | sed 's/,/, /g'
           )"
           echo "Depends: $DEPS"
 
