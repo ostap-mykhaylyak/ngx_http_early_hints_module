@@ -1,0 +1,9 @@
+#!/bin/sh
+# prerm — eseguito prima della rimozione: ferma il servizio se attivo.
+set -e
+
+if [ -d /run/systemd/system ]; then
+    systemctl stop nginx >/dev/null 2>&1 || true
+fi
+
+exit 0

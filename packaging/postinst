@@ -1,0 +1,24 @@
+#!/bin/sh
+# postinst — eseguito da dpkg dopo lo scompattamento dei file.
+set -e
+
+# ricarica systemd se presente (non in container/chroot)
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+cat <<'EOF'
+
+nginx (con modulo Early Hints) installato in /opt/nginx
+
+  Test config:  /opt/nginx/sbin/nginx -t
+  Avvio:        systemctl start  nginx
+  Avvio a boot: systemctl enable nginx
+  Config:       /opt/nginx/conf/nginx.conf
+
+Il modulo early_hints e' gia' compilato nel binario (statico):
+nella tua location usa  early_hints 1;  +  early_hints_link "...";
+
+EOF
+
+exit 0
